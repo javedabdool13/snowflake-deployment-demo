@@ -1,0 +1,28 @@
+
+name: Deploy Snowflake SQL
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        required: true
+        type: choice
+        options:
+          - UAT
+          - PRD
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Confirm deployment selection
+        run: |
+          echo "Branch: $GITHUB_REF_NAME"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "SQL deployment connection will be configured next."
