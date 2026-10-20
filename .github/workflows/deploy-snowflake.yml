@@ -29,7 +29,8 @@ jobs:
       - name: Install Snowflake connector
         run: pip install snowflake-connector-python
 
-      - name: Test Snowflake connection
+      
+      - name: Deploy SQL
         env:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
@@ -49,9 +50,17 @@ jobs:
               role="UAT_DEPLOY_ROLE"
           )
 
-          cur = conn.cursor()
-          cur.execute("SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_DATABASE()")
-          print(cur.fetchone())
-          cur.close()
-          conn.close()
+          try:
+              cur = conn.cursor()
+              try:
+                  with open("sql/create_customers.sql", "r") as f:
+                      sql = f.read()
+
+                  cur.execute(sql)
+                  print("SQL deployment successful!")
+                  print("Target: UAT_DB.APP.CUSTOMERS")
+              finally:
+                  cur.close()
+          finally:
+              conn.close()
           '
