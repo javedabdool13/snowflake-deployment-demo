@@ -21,8 +21,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Confirm deployment selection
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Snowflake connector
+        run: pip install snowflake-connector-python
+
+      
+      - name: Deploy SQL
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
         run: |
-          echo "Branch: $GITHUB_REF_NAME"
-          echo "Environment: ${{ inputs.environment }}"
-          echo "SQL deployment connection will be configured next."
+          python -c '
+          import os
+          import snowflake.connector
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              warehouse="UAT_WH",
+              database="UAT_DB",
+              schema="APP",
+              role="UAT_DEPLOY_ROLE"
+          )
+
+          try:
+              cur = conn.cursor()
+              try:
+                  with open("sql/create_customers.sql", "r") as f:
+                      sql = f.read()
+
+                  cur.execute(sql)
+                  print("SQL deployment successful!")
+                  print("Target: UAT_DB.APP.CUSTOMERS")
+              finally:
+                  cur.close()
+          finally:
+              conn.close()
+          '
