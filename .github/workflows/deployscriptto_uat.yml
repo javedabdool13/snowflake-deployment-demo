@@ -1,0 +1,115 @@
+
+name: Deploy SQL to UAT
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: UAT
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find new and modified SQL files
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PREVIOUS_SHA=$(gh run list \
+            --workflow deploy-uat.yml \
+            --branch dev \
+            --status success \
+            --json headSha \
+            --jq '.[0].headSha' \
+            --limit 1)
+
+          if [ -z "$PREVIOUS_SHA" ] || [ "$PREVIOUS_SHA" = "null" ]; then
+            echo "First deployment: selecting all SQL files."
+            FILES=$(git ls-files sql/ | grep -E '\.sql$' || true)
+          else
+            echo "Comparing against last successful UAT deployment: $PREVIOUS_SHA"
+            FILES=$(git diff --no-renames --name-only \
+              --diff-filter=AM \
+              "$PREVIOUS_SHA" "$GITHUB_SHA" -- sql/ | grep -E '\.sql$' || true)
+          fi
+
+          echo "Files selected:"
+          echo "$FILES"
+
+          if [ -n "$FILES" ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          {
+            echo "files<<EOF"
+            echo "$FILES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Snowflake connector
+        if: steps.changes.outputs.has_changes == 'true'
+        run: pip install snowflake-connector-python
+
+      - name: Deploy changed SQL files
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SQL_FILES: ${{ steps.changes.outputs.files }}
+        run: |
+          python - <<'PY'
+          import os
+          import snowflake.connector
+
+          files = [
+              f for f in os.environ["SQL_FILES"].splitlines()
+              if f.strip()
+          ]
+
+          conn = snowflake.connector.connect(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              warehouse="UAT_WH",
+              database="UAT_DB",
+              schema="APP",
+              role="UAT_DEPLOY_ROLE"
+          )
+
+          try:
+              with conn.cursor() as cur:
+                  for path in files:
+                      print(f"Deploying: {path}")
+
+                      with open(path, encoding="utf-8") as f:
+                          sql = f.read().strip()
+
+                      if sql:
+                          cur.execute(sql)
+
+                      print(f"Successfully deployed: {path}")
+          finally:
+              conn.close()
+          PY
+
+      - name: No SQL changes
+        if: steps.changes.outputs.has_changes != 'true'
+        run: echo "No new or modified SQL files found."
