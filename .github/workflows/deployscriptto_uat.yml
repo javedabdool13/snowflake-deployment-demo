@@ -25,7 +25,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PREVIOUS_SHA=$(gh run list \
-            --workflow deploy-uat.yml \
+            --deployscriptto_uat.yml \
             --branch dev \
             --status success \
             --json headSha \
